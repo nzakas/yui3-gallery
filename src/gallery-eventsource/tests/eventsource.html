@@ -1,0 +1,60 @@
+<html>
+<head>
+<title>EventSource Tests</title>
+<script type="text/javascript" src="../../../../yui3/build/yui/yui.js"></script>
+</head>
+<body class="yui3-skin-sam">
+    <h1>EventSource Tests</h1>
+    <div id="c"></div>
+<script type="text/javascript">  
+    
+YUI({
+    gallery: 'gallery-2009.12.08-22',
+    modules: {
+        'gallery-eventsource': {
+            fullpath: '../../../build/gallery-eventsource/gallery-eventsource.js',
+            requires: ["event-custom"],
+            optional: [],
+            supersedes: []
+        }
+ 
+    },
+    base: '../../../../yui3/build/',
+    filter: "debug",
+    logInclude: { TestRunner: true }
+}).use('test', 'console', 'gallery-eventsource', function (Y) {
+
+    var src = new Y.EventSource("data.txt");
+    src.on("message", function(event){
+        console.log(event.data);
+    });
+   
+    src.on("error", function(){
+        alert("Error!");
+    });
+    
+    var r = new Y.Console({
+        verbose : true,
+        //consoleLimit : 10,
+        newestOnTop : false
+    });
+    
+    r.render('#c');
+    
+    
+    //add to the testrunner and run
+    //Y.Test.Runner.add(Y.Tests.Y64);
+    //Y.Test.Runner.run();
+
+    /*if (parent && parent != window) {
+        YAHOO.tool.TestManager.load();
+    } else {
+        YAHOO.tool.TestRunner.run();
+    }*/
+ 
+});
+
+
+</script>
+</body>
+</html>
