@@ -3,79 +3,108 @@ YUI.add('gallery-eventsource', function(Y) {
 
 /*global EventSource*/
 
-	var useNative = typeof EventSource != "undefined",
-		YUIEvenSourceProto;
+    var useNative = typeof EventSource != "undefined",
+        YUIEvenSourceProto;
 
-	function YUIEventSource(url){
+    function YUIEventSource(url){
     
         Y.Event.Target.call(this);
-	
-		/**
-		 * The URL or the server-sent events.
-		 * @type String
-		 * @property url
-		 */
-		this.url = url;
-	
-	
-		/**
-		 * The current state of the object. Possible values are 0 for connecting,
-		 * 1 for connected, and 2 for disconnected.
-		 * @type int
-		 * @property readyState
-		 */
-		this.readyState = 0;
-		
-		/**
-		 * Object used to communicate with the server. May be an XHR or an
-		 * EventSource.
-		 * @type XMLHttpRequest|EventSource
+    
+        /**
+         * The URL or the server-sent events.
+         * @type String
+         * @property url
+         */
+        this.url = url;
+    
+    
+        /**
+         * The current state of the object. Possible values are 0 for connecting,
+         * 1 for connected, and 2 for disconnected.
+         * @type int
+         * @property readyState
+         */
+        this.readyState = 0;
+        
+        /**
+         * Object used to communicate with the server. May be an XHR or an
+         * EventSource.
+         * @type XMLHttpRequest|EventSource
          * @property _transport
          * @private
          */
-		this._transport = null;
-		
-		//initialize the object
-		this._init();
-	
-	}
-	
-	var YUIEventSourceProto;
-	
-	//use native if available
-	if (useNative){
-		YUIEventSourceProto = {
+        this._transport = null;
+        
+        //initialize the object
+        this._init();
+    
+    }
+    
+    var YUIEventSourceProto;
+    
+    //use native if available
+    if (useNative){
+        YUIEventSourceProto = {
             
             _init: function(){
                 var src = new EventSource(this.url),
                     that = this;
                     
-                //map events to custom events
-                src.onopen = function(event){
-                    that.fire("open");
-                    that.readyState = 1;
-                };                
-                src.onmessage = function(event){
-                    that.fire({type: "message", data: event.data});
-                };                
-                src.onerror = function(event){
-                    that.fire("error");
-                    that.readyState = 2;
-                };
+                //map common events to custom events
+                src.onopen = 
+                    src.onmessage =   
+                    src.onerror = Y.bind(function(event){                    
+                        switch(event.type){
+                            case "open":
+                                this.fire("open");
+                                this.readyState = 1;
+                                break;
+                            case "message":
+                                this.fire({type: "message", data: event.data });
+                                break;
+                            case "error":
+                                this.fire("error");
+                                this.readyState = 2;
+                                break;              
+                            //no default
+                        }                    
+                    }, this);
                 
                 this._transport = src;                
             },
             
             close: function(){
                 this._transport.close();
-                that.readyState = 2;
+                this.readyState = 2;
+            },
+            
+            /*
+             * Must override attach for custom server-sent events. Since
+             * there's no catchall for all server-sent events, must assign
+             * event handlers directly to the EventSource object.
+             */
+            attach: function( type , fn , el , context , args){
+                var that = this;
+                if (type != "message"){
+                    this._transport.addEventListener(type, function(event){
+                        that.fire({
+                            type: event.type,
+                            data: event.data
+                        });
+                    }, false);
+                }
+                
+                //call superclass method
+                Y.Event.Target.attach.call(this, arguments);
             }
+            
+            //TODO: Need detach override too?
 
-		};
-	
-	} else {
+        };
     
-		YUIEventSourceProto = {
+    } else {
+    
+        YUIEventSourceProto = {
             
             /**
              * Initializes the EventSource object. Either creates an EventSource
@@ -154,7 +183,11 @@ YUI.add('gallery-eventsource', function(Y) {
                     
                     //readyState will be 2 if close() was called
                     if (this.readyState != 2){
+                    
+                        //cleanup event handler to prevent memory leaks in IE
                         this._transport.onreadystatechange = function(){};
+                        
+                        //now start it
                         this._init();
                     }
                 } else {
@@ -257,17 +290,17 @@ YUI.add('gallery-eventsource', function(Y) {
                 this._transport.abort();
             }
 
-		};
-	
+        };
+    
     
     
     }
-	
-	//inherit from Event.Target to get events, and assign instance methods
-	Y.extend(YUIEventSource, Y.Event.Target, YUIEventSourceProto);
+    
+    //inherit from Event.Target to get events, and assign instance methods
+    Y.extend(YUIEventSource, Y.Event.Target, YUIEventSourceProto);
 
-	//publish to Y object
-	Y.EventSource = YUIEventSource;
+    //publish to Y object
+    Y.EventSource = YUIEventSource;
 
 
 
