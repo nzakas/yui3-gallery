@@ -136,6 +136,22 @@
                  */
                 this._lastEventId = null;
                 
+                /**
+                 * Tracks the last piece of data from the messages stream.
+                 * @type String
+                 * @property _data
+                 * @private
+                 */
+                this._data = "";
+                
+                /**
+                 * Tracks the last event name in the message stream.
+                 * @type String
+                 * @property _eventName
+                 * @private
+                 */
+                this._eventName = "";
+                
                 //use appropriate XHR object as transport
                 if (typeof XMLHttpRequest != "undefined"){ //most browsers
                     src = new XMLHttpRequest();
@@ -175,6 +191,7 @@
                             //noop
                         }
                     } else if (src.readyState == 4 && that.readyState < 2){
+                        that._fireMessageEvent();  //just in case
                         that._signalOpen();
                         that._validateResponse();
                     }
@@ -254,8 +271,7 @@
                     parts,
                     i = 0,
                     len = lines.length,
-                    data = "",
-                    eventName = "";
+                    tempData;
                     
                 while (i < len){
                     
@@ -267,11 +283,15 @@
                         //keep in mind that "data: a:b" is a valid value
                         switch(parts.shift()){
                             case "data":
-                                data += parts.join(":") + "\n";
+                                tempData = parts.join(":") + "\n";
+                                if (tempData.charAt(0) == " "){
+                                    tempData = tempData.substring(1);
+                                }
+                                this._data += tempData;
                                 break;
                                 
                             case "event":
-                                eventName = parts[1];
+                                this._eventName = parts[1];
                                 break;
                                 
                             case "id":
@@ -283,31 +303,38 @@
                         //an empty line means to flush the event buffer of data
                         //but only if there's data to send
                     
-                        if (data != ""){
-                        
-                            //per spec, strip off last newline
-                            if (data.charAt(data.length-1) == "\n"){
-                                data = data.substring(0,data.length-1);
-                            }
-                            
-                            //per spec, removing leading space character, strip off leading white space
-                            if (data.charAt(0) == " "){
-                                data = data.substring(1);
-                            }
-                        
-                            //an empty line means a message is complete
-                            this.fire({type: "message", data: data});
-                            
-                            //clear the existing data
-                            data = "";
-                            eventName = "";
-                        }
+                        this._fireMessageEvent();
                     
                     }
                 
                     i++;
                 }
                 
+            },
+            
+            /**
+             * Fires the message event with appropriate data, but only if
+             * there is actual data to share. This uses the stored
+             * event name and data value to fire the appropriate event.
+             * @return {void}
+             * @method _fireMessageEvent
+             * @private
+             */
+            _fireMessageEvent: function(){
+                if (this._data != ""){
+                
+                    //per spec, strip off last newline
+                    if (this._data.charAt(this._data.length-1) == "\n"){
+                        this._data = this._data.substring(0,this._data.length-1);
+                    }
+                
+                    //an empty line means a message is complete
+                    this.fire({type: "message", data: this._data});
+                    
+                    //clear the existing data
+                    this._data = "";
+                    this._eventName = "";
+                }            
             },
             
             /**
