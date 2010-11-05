@@ -45,35 +45,49 @@
         YUIEventSourceProto = {
             
             _init: function(){
-                var src = new EventSource(this.url),
-                    that = this;
+            
+                //any number of things could go wrong in here
+                try {
+                    var src = new EventSource(this.url),
+                        that = this;
+                        
+                    //map common events to custom events
+                    //note readyState must change before firing events
+                    src.onopen = 
+                        src.onmessage =   
+                        src.onerror = Y.bind(function(event){                    
+                            switch(event.type){
+                                case "open":
+                                    this.readyState = 1;
+                                    this.fire({type:"open"});
+                                    break;
+                                case "message":
+                                    this.fire({type: "message", data: event.data });
+                                    break;
+                                case "error":
+                                    this.readyState = 2;
+                                    this.fire({type:"error"});
+                                    break;              
+                                //no default
+                            }                    
+                        }, this);
                     
-                //map common events to custom events
-                //note readyState must change before firing events
-                src.onopen = 
-                    src.onmessage =   
-                    src.onerror = Y.bind(function(event){                    
-                        switch(event.type){
-                            case "open":
-                                this.readyState = 1;
-                                this.fire({type:"open"});
-                                break;
-                            case "message":
-                                this.fire({type: "message", data: event.data });
-                                break;
-                            case "error":
-                                this.readyState = 2;
-                                this.fire({type:"error"});
-                                break;              
-                            //no default
-                        }                    
-                    }, this);
+                    this._transport = src;      
+                } catch (ex){
                 
-                this._transport = src;                
+                    //fire error event
+                    setTimeout(Y.bind(function(){
+                        this.readyState = 2;
+                        this.fire({type:"error"});
+                    },this), 0);
+                }          
             },
             
             close: function(){
-                this._transport.close();
+                //can be null if error occurs during _init
+                if (this._transport != null){
+                    this._transport.close();
+                }
                 this.readyState = 2;
             },
             
