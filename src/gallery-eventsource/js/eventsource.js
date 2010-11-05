@@ -166,7 +166,7 @@
                         }
                     
                         //means content type is correct, keep going
-                        that._updateReadyState();
+                        that._signalOpen();
                         
                         //IE6 and IE7 throw an error when trying to access responseText here
                         try {
@@ -175,7 +175,7 @@
                             //noop
                         }
                     } else if (src.readyState == 4 && that.readyState < 2){
-                        that._updateReadyState();
+                        that._signalOpen();
                         that._validateResponse();
                     }
                 };
@@ -184,8 +184,11 @@
                 
                 //wait until this JS task is done before firing
                 //so as not to lose any events
-                setTimeout(Y.bind(function(){
-                    this._transport.send(null);
+                setTimeout(Y.bind(function(){                    
+                    //close() might have been called before this executes
+                    if (this.readyState != 2){
+                        this._transport.send(null);
+                    }
                 },this), 0);
             },            
             
@@ -222,14 +225,15 @@
             
             /**
              * Updates the readyState property to 1 if it's still
-             * set at 0.
-             * @method _updateReadyState
+             * set at 0 and fires the open event.
+             * @method _signalOpen
              * @return {void}
              * @private
              */
-            _updateReadyState: function(){
+            _signalOpen: function(){
                 if (this.readyState == 0){
-                    this.readyState == 1;
+                    this.readyState = 1;
+                    this.fire({type:"open"});
                 }
             },
             
