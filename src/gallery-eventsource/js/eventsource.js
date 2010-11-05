@@ -72,7 +72,7 @@
                             }                    
                         }, this);
                     
-                    this._transport = src;      
+                    this._transport = src;
                 } catch (ex){
                 
                     //fire error event
@@ -233,19 +233,23 @@
              */
             _validateResponse: function(){
                 var src = this._transport;
-                if (src.status >= 200 && src.status < 300){
-                    this._processIncomingData(src.responseText);
-                    
-                    //readyState will be 2 if close() was called
-                    if (this.readyState != 2){
-                    
-                        //cleanup event handler to prevent memory leaks in IE
-                        this._transport.onreadystatechange = function(){};
+                try {
+                    if (src.status >= 200 && src.status < 300){
+                        this._processIncomingData(src.responseText);
                         
-                        //now start it
-                        this._init();
+                        //readyState will be 2 if close() was called
+                        if (this.readyState != 2){
+                        
+                            //cleanup event handler to prevent memory leaks in IE
+                            this._transport.onreadystatechange = function(){};
+                            
+                            //now start it
+                            this._init();
+                        }
+                    } else {
+                        throw new Error();
                     }
-                } else {
+                } catch (ex){
                     this.readyState = 2;
                     this.fire({type:"error"});
                 }
@@ -305,7 +309,7 @@
                                 break;
                                 
                             case "event":
-                                this._eventName = parts[1];
+                                this._eventName = parts[0].replace(/^\s+|\s+$/g, "");
                                 break;
                                 
                             case "id":
@@ -335,6 +339,8 @@
              * @private
              */
             _fireMessageEvent: function(){
+                var eventName = "message";
+            
                 if (this._data != ""){
                 
                     //per spec, strip off last newline
@@ -342,8 +348,12 @@
                         this._data = this._data.substring(0,this._data.length-1);
                     }
                 
+                    if (this._eventName.replace(/^\s+|\s+$/g, "") != ""){
+                        eventName = this._eventName;
+                    }
+                
                     //an empty line means a message is complete
-                    this.fire({type: "message", data: this._data});
+                    this.fire({type: eventName, data: this._data});
                     
                     //clear the existing data
                     this._data = "";
