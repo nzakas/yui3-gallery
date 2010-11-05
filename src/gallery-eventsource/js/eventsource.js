@@ -289,6 +289,11 @@
                             if (data.charAt(data.length-1) == "\n"){
                                 data = data.substring(0,data.length-1);
                             }
+                            
+                            //per spec, removing leading space character, strip off leading white space
+                            if (data.charAt(0) == " "){
+                                data = data.substring(1);
+                            }
                         
                             //an empty line means a message is complete
                             this.fire({type: "message", data: data});
