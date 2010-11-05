@@ -24,6 +24,37 @@ YUI({
     logInclude: { TestRunner: true }
 }).use('test', 'console', 'gallery-eventsource', function (Y) {
 
+
+    var testSuite = new Y.Test.Suite("Server-Sent Events Tests");
+    
+    testSuite.add(new Y.Test.Case({
+    
+        name: "Error Conditions",
+        
+        setUp: function(){
+            
+        },
+        
+        tearDown: function(){
+            this.src.close();
+            this.src = null;
+        },
+        
+        "A response type other than text/event-stream should cause an error": function(){
+            this.src = new Y.EventSource("data.txt");
+            this.src.attach("error", Y.bind(function(event){
+                this.resume(function(){
+                
+                    Y.Assert.areEqual(2, this.readyState, "Ready state should be 2.");
+                
+                });
+            }, this));
+            this.wait(100);
+        
+        }
+    
+    }));
+
     var src = new Y.EventSource("data.txt");
     src.on("message", function(event){
         console.log(event.data);

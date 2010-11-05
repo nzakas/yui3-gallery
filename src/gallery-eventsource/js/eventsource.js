@@ -49,20 +49,21 @@
                     that = this;
                     
                 //map common events to custom events
+                //note readyState must change before firing events
                 src.onopen = 
                     src.onmessage =   
                     src.onerror = Y.bind(function(event){                    
                         switch(event.type){
                             case "open":
-                                this.fire("open");
                                 this.readyState = 1;
+                                this.fire({type:"open"});
                                 break;
                             case "message":
                                 this.fire({type: "message", data: event.data });
                                 break;
                             case "error":
-                                this.fire("error");
                                 this.readyState = 2;
+                                this.fire({type:"error"});
                                 break;              
                             //no default
                         }                    
@@ -81,19 +82,20 @@
              * there's no catchall for all server-sent events, must assign
              * event handlers directly to the EventSource object.
              */
-            attach: function( type , fn , el , context , args){
+            on: function( type , fn , el , context , args){
                 var that = this;
-                if (type != "message"){
+                if (type != "message" && type != "error" && type != "open"){
                     this._transport.addEventListener(type, function(event){
                         that.fire({
-                            type: event.type,
-                            data: event.data
+                            type:   event.type,
+                            data:   event.data,
+                            id:     event.id
                         });
                     }, false);
                 }
                 
                 //call superclass method
-                Y.Event.Target.attach.call(this, arguments);
+                Y.Event.Target.prototype.on.apply(this, arguments);
             }
             
             //TODO: Need detach override too?
@@ -125,6 +127,15 @@
                  */
                 this._lastIndex = 0;
                 
+                /**
+                 * Keeps track of the last event ID received from the server.
+                 * Only used when native EventSource is not available.
+                 * @type variant
+                 * @property _lastEventId
+                 * @private
+                 */
+                this._lastEventId = null;
+                
                 //use appropriate XHR object as transport
                 if (typeof XMLHttpRequest != "undefined"){ //most browsers
                     src = new XMLHttpRequest();
@@ -142,7 +153,19 @@
                  * the same connection.
                  */
                 src.onreadystatechange = function(){
+                
+                    //streaming XHR will start getting data at this point
                     if (src.readyState == 3){
+                    
+                        //verify that the HTTP content type is correct, if not, error out
+                        if (src.getResponseHeader("Content-type") != "text/event-stream"){
+                            that.close();
+                            that.readyState = 2;
+                            that.fire({type:"error"});
+                            return;
+                        }
+                    
+                        //means content type is correct, keep going
                         that._updateReadyState();
                         
                         //IE6 and IE7 throw an error when trying to access responseText here
@@ -151,7 +174,7 @@
                         } catch(ex){
                             //noop
                         }
-                    } else if (src.readyState == 4){
+                    } else if (src.readyState == 4 && that.readyState < 2){
                         that._updateReadyState();
                         that._validateResponse();
                     }
@@ -161,10 +184,10 @@
                 
                 //wait until this JS task is done before firing
                 //so as not to lose any events
-                setTimeout(function(){
-                    src.send(null);
-                }, 0);
-            },
+                setTimeout(Y.bind(function(){
+                    this._transport.send(null);
+                },this), 0);
+            },            
             
             /**
              * Called when XHR readyState 4 occurs. Processes the response,
@@ -189,8 +212,8 @@
                         this._init();
                     }
                 } else {
-                    this.fire("error");
                     this.readyState = 2;
+                    this.fire({type:"error"});
                 }
                 
                 //prevent memory leaks due to closure
@@ -284,8 +307,10 @@
              * @return {void}
              */
             close: function(){
-                this.readyState = 2;
-                this._transport.abort();
+                if (this.readyState != 2){
+                    this.readyState = 2;
+                    this._transport.abort();
+                }
             }
 
         };
