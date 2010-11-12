@@ -455,6 +455,15 @@
                     i++;
                 }
                 
+                /*
+                 * Internet Explorer 8 sometimes cuts off the last empty line
+                 * in a sequence. In that case, the call to _fireMessageEvent()
+                 * isn't made even though there's a new message to broadcast.
+                 * Since _fireMessageEvent() always checks to see if there's
+                 * more message data before firing, it's safe to call again.
+                 */
+                this._fireMessageEvent();
+                
             },
             
             /**
