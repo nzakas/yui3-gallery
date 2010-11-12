@@ -220,85 +220,89 @@ YUI.add('gallery-eventsource', function(Y) {
                  * @private
                  */
                 this._eventName = "";                                             
+
                 
-                /**
-                 * Do once the current JS task has executed. This is to ensure
-                 * the open event has a chance to fire.
-                 */
-                //Y.later(0, this, function(){   
-                
-                    var src,
-                        that = this;
-                 
-                    //close() might have been called before this executes
-                    if (this.readyState != 2){
-                            
-                        //use appropriate XHR object as transport
-                        if (typeof XMLHttpRequest != "undefined"){ //most browsers
-                            src = new XMLHttpRequest();
-                        } else if (typeof ActiveXObject != "undefined"){    //IE6
-                            src = new ActiveXObject("MSXML2.XMLHttp");
-                        } else {
-                            throw new Error("Server-sent events unavailable.");
-                        }
+                var src,
+                    that = this;
+             
+                //close() might have been called before this executes
+                if (this.readyState != 2){
                         
-                        src.open("get", this.url, true);
-                            
-                        /*
-                         * IE < 8 will not have multiple readyState 3 calls, so
-                         * those will go to readyState 4 and effectively become
-                         * long-polling requests. All others will have a hanging
-                         * GET request that receives continual information over
-                         * the same connection.
-                         */
-                        src.onreadystatechange = function(){
-                        
-                            if (src.readyState == 3){
-                            
-                                //verify that the HTTP content type is correct, if not, error out
-                                if (src.getResponseHeader("Content-type") != "text/event-stream"){
-                                    that.close();
-                                    that._fireErrorEvent();
-                                    return;
-                                }
-                            
-                                //means content type is correct, keep going
-                                that._signalOpen();
-                                
-                                /*
-                                 * Streaming XHR objects will start getting data at
-                                 * readyState 3. IE6 and IE7 do not support this
-                                 * behavior and throw an error if you try to access
-                                 * responseText during any readyState other than 4.
-                                 * It's ugly, but browser sniffing to avoid unnecessary
-                                 * try/catch.
-                                 */
-                                if (Y.UA.ie === 0 && Y.UA.ie < 8){                                
-                                    that._processIncomingData(src.responseText);
-                                }
-                            } else if (src.readyState == 4 && that.readyState < 2){
-                            
-                                //IE6 and IE7 won't have fired the open event yet, so check
-                                that._signalOpen();
-                                
-                                //there might be one more event queued up to be fired
-                                that._fireMessageEvent();
-                                
-                                //check for any additional data
-                                that._validateResponse();
-                            }
-                        };
-                                           
-                        /*
-                         * Save the instance to a property. This must happen before
-                         * the call to send() because fast responses may cause
-                         * onreadystatechange to fire before the next line after
-                         * send().
-                         */
-                        this._transport = src;                                            
-                        src.send(null);                        
+                    //use appropriate XHR object as transport
+                    if (typeof XMLHttpRequest != "undefined"){ //most browsers
+                        src = new XMLHttpRequest();
+                    } else if (typeof ActiveXObject != "undefined"){    //IE6
+                        src = new ActiveXObject("MSXML2.XMLHttp");
+                    } else {
+                        throw new Error("Server-sent events unavailable.");
                     }
-                //});
+                    
+                    /*
+                     * If there was a last event ID, add the special
+                     * Last-Event-ID header to the request.
+                     */
+                    if (this._lastEventId){
+                        src.setRequestHeader("Last-Event-ID: " + this._lastEventId);
+                        //TODO: Need to reset _lastEventId? Pending WHAT-WG clarification
+                    }
+                    
+                    src.open("get", this.url, true);
+                        
+                    /*
+                     * IE < 8 will not have multiple readyState 3 calls, so
+                     * those will go to readyState 4 and effectively become
+                     * long-polling requests. All others will have a hanging
+                     * GET request that receives continual information over
+                     * the same connection.
+                     */
+                    src.onreadystatechange = function(){
+                    
+                        if (src.readyState == 3){
+                        
+                            //verify that the HTTP content type is correct, if not, error out
+                            if (src.getResponseHeader("Content-type") != "text/event-stream"){
+                                that.close();
+                                that._fireErrorEvent();
+                                return;
+                            }
+                        
+                            //means content type is correct, keep going
+                            that._signalOpen();
+                            
+                            /*
+                             * Streaming XHR objects will start getting data at
+                             * readyState 3. IE6 and IE7 do not support this
+                             * behavior and throw an error if you try to access
+                             * responseText during any readyState other than 4.
+                             * It's ugly, but browser sniffing to avoid unnecessary
+                             * try/catch.
+                             */
+                            if (Y.UA.ie === 0 && Y.UA.ie < 8){                                
+                                that._processIncomingData(src.responseText);
+                            }
+                        } else if (src.readyState == 4 && that.readyState < 2){
+                        
+                            //IE6 and IE7 won't have fired the open event yet, so check
+                            that._signalOpen();
+                            
+                            //there might be one more event queued up to be fired
+                            that._fireMessageEvent();
+                            
+                            //check for any additional data
+                            that._validateResponse();
+                        }
+                    };
+                                       
+                    /*
+                     * Save the instance to a property. This must happen before
+                     * the call to send() because fast responses may cause
+                     * onreadystatechange to fire before the next line after
+                     * send().
+                     */
+                    this._transport = src;                                            
+                    src.send(null);                        
+                }
+
             },            
                 
             /**
@@ -379,7 +383,7 @@ YUI.add('gallery-eventsource', function(Y) {
                         
                     //format is "event: eventName"
                     case "event":
-                        this._eventName = value.replace(/^\s+|\s+$/g, "");
+                        this._eventName = value.replace(/^\s+|\s+$/g, "");  //trim
                         break;
                         
                     //format is ":some comment"
@@ -395,7 +399,7 @@ YUI.add('gallery-eventsource', function(Y) {
                     //format is "retry: 10"
                     case "retry":
                     
-                        //TODO
+                        //TODO: Need clarification from WHAT-WG
                         
                         break;
                         
