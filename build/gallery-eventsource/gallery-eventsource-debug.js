@@ -4,7 +4,8 @@ YUI.add('gallery-eventsource', function(Y) {
 /*global EventSource*/
 
     var useNative = typeof EventSource != "undefined",
-        YUIEvenSourceProto;
+        prototype,
+        basePrototype;
 
     function YUIEventSource(url){
     
@@ -15,8 +16,7 @@ YUI.add('gallery-eventsource', function(Y) {
          * @type String
          * @property url
          */
-        this.url = url;
-    
+        this.url = url;    
     
         /**
          * The current state of the object. Possible values are 0 for connecting,
@@ -40,41 +40,110 @@ YUI.add('gallery-eventsource', function(Y) {
     
     }
     
-    var YUIEventSourceProto;
+    //methods that are necessary regardless of native vs. non-native
+    basePrototype = {
+    
+        /**
+         * Fires the error event. When this happens, the readyState
+         * must first be set to 2 so that error handlers querying
+         * this value receive the correct value.
+         * @return {void}
+         * @method _fireErrorEvent
+         * @private
+         */
+        _fireErrorEvent: function(){  
+            Y.later(0, this, function(){
+                this.readyState = 2;
+                this.fire({type:"error"});
+            });
+        },
+        
+        /**
+         * Fires the open event. When this happens, the readyState
+         * must first be set to 1 so that event listeners querying
+         * this value receive the correct value.
+         * @return {void}
+         * @method _fireOpenEvent
+         * @private
+         */
+        _fireOpenEvent: function(){
+            Y.later(0, this, function(){
+                this.readyState = 1;
+                this.fire({type:"open"});
+            });        
+        },
+        
+        /**
+         * Fires a message event. This might be either an event of
+         * type message or a custom event as received from the event
+         * stream. 
+         * @param {Object} data An object containing the keys
+         *      type, data, lastEventId, and origin.
+         * @return {void}
+         * @method _fireMessageEvent
+         * @private
+         */
+        _fireMessageEvent: function(data){
+            Y.later(0, this, function(){
+                this.fire(data);
+            });        
+        }
+        
+    
+    };
+    
     
     //use native if available
     if (useNative){
-        YUIEventSourceProto = {
+        prototype = {
             
             _init: function(){
-                var src = new EventSource(this.url),
-                    that = this;
+            
+                //any number of things could go wrong in here
+                try {
+                    var src = new EventSource(this.url),
+                        that = this;
+                        
+                    /**
+                     * Map the common EventSource events to custom
+                     * YUI events. These are delayed with a timer
+                     * to avoid race conditions and provide consistency
+                     * between the native EventSource usage and the
+                     * XHR-based event source events.
+                     */
+                    src.onopen = 
+                        src.onmessage =   
+                        src.onerror = Y.bind(function(event){                    
+                            switch(event.type){
+                                case "open":
+                                    this._fireOpenEvent();
+                                    break;
+                                case "message":
+                                    this._fireMessageEvent({
+                                        type:   "message",
+                                        data:   event.data,
+                                        lastEventId:    event.lastEventId,
+                                        origin: event.origin
+                                    });
+                                    break;
+                                case "error":
+                                    this._fireErrorEvent();
+                                    break;              
+                                //no default
+                            }                    
+                        }, this);
                     
-                //map common events to custom events
-                src.onopen = 
-                    src.onmessage =   
-                    src.onerror = Y.bind(function(event){                    
-                        switch(event.type){
-                            case "open":
-                                this.fire("open");
-                                this.readyState = 1;
-                                break;
-                            case "message":
-                                this.fire({type: "message", data: event.data });
-                                break;
-                            case "error":
-                                this.fire("error");
-                                this.readyState = 2;
-                                break;              
-                            //no default
-                        }                    
-                    }, this);
-                
-                this._transport = src;                
+                    this._transport = src;
+                } catch (ex){    
+                    this._fireErrorEvent();
+                }          
             },
             
             close: function(){
-                this._transport.close();
+                //can be null if error occurs during _init
+                if (this._transport != null){
+                    this._transport.close();
+                }
                 this.readyState = 2;
             },
             
@@ -83,19 +152,21 @@ YUI.add('gallery-eventsource', function(Y) {
              * there's no catchall for all server-sent events, must assign
              * event handlers directly to the EventSource object.
              */
-            attach: function( type , fn , el , context , args){
+            on: function( type , fn , el , context , args){
                 var that = this;
-                if (type != "message"){
+                if (type != "message" && type != "error" && type != "open"){
                     this._transport.addEventListener(type, function(event){
-                        that.fire({
-                            type: event.type,
-                            data: event.data
+                        that._fireMessageEvent({
+                            type:   event.type,
+                            data:   event.data,
+                            origin: event.origin,
+                            lastEventId:    event.lastEventId
                         });
                     }, false);
                 }
                 
                 //call superclass method
-                Y.Event.Target.attach.call(this, arguments);
+                Y.Event.Target.prototype.on.apply(this, arguments);
             }
             
             //TODO: Need detach override too?
@@ -104,7 +175,7 @@ YUI.add('gallery-eventsource', function(Y) {
     
     } else {
     
-        YUIEventSourceProto = {
+        prototype = {
             
             /**
              * Initializes the EventSource object. Either creates an EventSource
@@ -114,8 +185,6 @@ YUI.add('gallery-eventsource', function(Y) {
              * @private
              */
             _init: function(){
-                var src,
-                    that = this;
                     
                 /**
                  * Keeps track of where in the response buffer to start
@@ -127,47 +196,111 @@ YUI.add('gallery-eventsource', function(Y) {
                  */
                 this._lastIndex = 0;
                 
-                //use appropriate XHR object as transport
-                if (typeof XMLHttpRequest != "undefined"){ //most browsers
-                    src = new XMLHttpRequest();
-                } else if (typeof ActiveXObject != "undefined"){    //IE6
-                    src = new ActiveXObject("MSXML2.XMLHttp");
-                }
-                
-                src.open("get", this.url, true);
-                    
-                /*
-                 * IE < 8 will not have multiple readyState 3 calls, so
-                 * those will go to readyState 4 and effectively become
-                 * long-polling requests. All others will have a hanging
-                 * GET request that receives continual information over
-                 * the same connection.
+                /**
+                 * Keeps track of the last event ID received from the server.
+                 * Only used when native EventSource is not available.
+                 * @type variant
+                 * @property _lastEventId
+                 * @private
                  */
-                src.onreadystatechange = function(){
-                    if (src.readyState == 3){
-                        that._updateReadyState();
-                        
-                        //IE6 and IE7 throw an error when trying to access responseText here
-                        try {
-                            that._processIncomingData(src.responseText);
-                        } catch(ex){
-                            //noop
+                this._lastEventId = null;
+                
+                /**
+                 * Tracks the last piece of data from the messages stream.
+                 * @type String
+                 * @property _data
+                 * @private
+                 */
+                this._data = "";
+                
+                /**
+                 * Tracks the last event name in the message stream.
+                 * @type String
+                 * @property _eventName
+                 * @private
+                 */
+                this._eventName = "";                                             
+                
+                /**
+                 * Do once the current JS task has executed. This is to ensure
+                 * the open event has a chance to fire.
+                 */
+                //Y.later(0, this, function(){   
+                
+                    var src,
+                        that = this;
+                 
+                    //close() might have been called before this executes
+                    if (this.readyState != 2){
+                            
+                        //use appropriate XHR object as transport
+                        if (typeof XMLHttpRequest != "undefined"){ //most browsers
+                            src = new XMLHttpRequest();
+                        } else if (typeof ActiveXObject != "undefined"){    //IE6
+                            src = new ActiveXObject("MSXML2.XMLHttp");
+                        } else {
+                            throw new Error("Server-sent events unavailable.");
                         }
-                    } else if (src.readyState == 4){
-                        that._updateReadyState();
-                        that._validateResponse();
+                        
+                        src.open("get", this.url, true);
+                            
+                        /*
+                         * IE < 8 will not have multiple readyState 3 calls, so
+                         * those will go to readyState 4 and effectively become
+                         * long-polling requests. All others will have a hanging
+                         * GET request that receives continual information over
+                         * the same connection.
+                         */
+                        src.onreadystatechange = function(){
+                        
+                            if (src.readyState == 3){
+                            
+                                //verify that the HTTP content type is correct, if not, error out
+                                if (src.getResponseHeader("Content-type") != "text/event-stream"){
+                                    that.close();
+                                    that._fireErrorEvent();
+                                    return;
+                                }
+                            
+                                //means content type is correct, keep going
+                                that._signalOpen();
+                                
+                                /*
+                                 * Streaming XHR objects will start getting data at
+                                 * readyState 3. IE6 and IE7 do not support this
+                                 * behavior and throw an error if you try to access
+                                 * responseText during any readyState other than 4.
+                                 * It's ugly, but browser sniffing to avoid unnecessary
+                                 * try/catch.
+                                 */
+                                if (Y.UA.ie === 0 && Y.UA.ie < 8){                                
+                                    that._processIncomingData(src.responseText);
+                                }
+                            } else if (src.readyState == 4 && that.readyState < 2){
+                            
+                                //IE6 and IE7 won't have fired the open event yet, so check
+                                that._signalOpen();
+                                
+                                //there might be one more event queued up to be fired
+                                that._fireMessageEvent();
+                                
+                                //check for any additional data
+                                that._validateResponse();
+                            }
+                        };
+                                           
+                        /*
+                         * Save the instance to a property. This must happen before
+                         * the call to send() because fast responses may cause
+                         * onreadystatechange to fire before the next line after
+                         * send().
+                         */
+                        this._transport = src;                                            
+                        src.send(null);                        
                     }
-                };
+                //});
+            },            
                 
-                this._transport = src;                
-                
-                //wait until this JS task is done before firing
-                //so as not to lose any events
-                setTimeout(function(){
-                    src.send(null);
-                }, 0);
-            },
-            
             /**
              * Called when XHR readyState 4 occurs. Processes the response,
              * then reopens the connection to the server unless close()
@@ -178,21 +311,24 @@ YUI.add('gallery-eventsource', function(Y) {
              */
             _validateResponse: function(){
                 var src = this._transport;
-                if (src.status >= 200 && src.status < 300){
-                    this._processIncomingData(src.responseText);
-                    
-                    //readyState will be 2 if close() was called
-                    if (this.readyState != 2){
-                    
-                        //cleanup event handler to prevent memory leaks in IE
-                        this._transport.onreadystatechange = function(){};
+                try {
+                    if (src.status >= 200 && src.status < 300){
+                        this._processIncomingData(src.responseText);
                         
-                        //now start it
-                        this._init();
+                        //readyState will be 2 if close() was called
+                        if (this.readyState != 2){
+                        
+                            //cleanup event handler to prevent memory leaks in IE
+                            this._transport.onreadystatechange = function(){};
+                            
+                            //now start it
+                            this._init();
+                        }
+                    } else {
+                        throw new Error(); //fastest way to fire error event
                     }
-                } else {
-                    this.fire("error");
-                    this.readyState = 2;
+                } catch (ex){
+                    this._fireErrorEvent();
                 }
                 
                 //prevent memory leaks due to closure
@@ -201,15 +337,83 @@ YUI.add('gallery-eventsource', function(Y) {
             
             /**
              * Updates the readyState property to 1 if it's still
-             * set at 0.
-             * @method _updateReadyState
+             * set at 0 and fires the open event.
+             * @method _signalOpen
              * @return {void}
              * @private
              */
-            _updateReadyState: function(){
+            _signalOpen: function(){
                 if (this.readyState == 0){
-                    this.readyState == 1;
+                    this._fireOpenEvent();
                 }
+            },
+            
+            /**
+             * Responsible for parsing and interpreting a line of data
+             * in the event stream source.
+             * @param {String} name The field name of the line.
+             * @param {Variant} value The field value of the line.
+             * @param {Boolean} secondPass (Optional) Indicates that this
+             *      is the second time the function was called for this
+             *      line. Needed to prevent infinite recursion.
+             * @method _processDataLine
+             * @return {void}
+             * @private
+             */
+            _processDataLine: function(name, value, secondPass){
+            
+                var tempData;
+            
+                //shift off the first item to check the value
+                //keep in mind that "data: a:b" is a valid value
+                switch(name){
+                
+                    //format is "data: value"
+                    case "data":
+                        tempData = value + "\n";
+                        if (tempData.charAt(0) == " "){
+                            tempData = tempData.substring(1);
+                        }
+                        this._data += tempData;
+                        break;
+                        
+                    //format is "event: eventName"
+                    case "event":
+                        this._eventName = value.replace(/^\s+|\s+$/g, "");
+                        break;
+                        
+                    //format is ":some comment"
+                    case "":
+                        //do nothing, this is a comment
+                        break;
+                        
+                    //format is "id: foo"
+                    case "id":
+                        this._lastEventId = value;
+                        break;
+                        
+                    //format is "retry: 10"
+                    case "retry":
+                    
+                        //TODO
+                        
+                        break;
+                        
+                    //format is "foo bar"
+                    default:
+                    
+                        if (!secondPass){
+                            /*
+                             * When there is no colon, but the line isn't blank,
+                             * the entire line is considered the field name
+                             * and the field value is considered to be the empty
+                             * string. This means the line must be processed again
+                             * if it reaches this point.
+                             */
+                            this._processDataLine(name, "", true);                                                
+                        }
+                }            
+            
             },
             
             /**
@@ -222,6 +426,8 @@ YUI.add('gallery-eventsource', function(Y) {
              * @method _processIncomingData
              */
             _processIncomingData: function(text){
+            
+                //get only the newest data, ignore the rest
                 text = text.substring(this._lastIndex);                
                 this._lastIndex += text.length;
                 
@@ -229,8 +435,7 @@ YUI.add('gallery-eventsource', function(Y) {
                     parts,
                     i = 0,
                     len = lines.length,
-                    data = "",
-                    eventName = "";
+                    tempData;
                     
                 while (i < len){
                     
@@ -238,40 +443,14 @@ YUI.add('gallery-eventsource', function(Y) {
                     
                         parts = lines[i].split(":");
                         
-                        //shift off the first item to check the value
-                        //keep in mind that "data: a:b" is a valid value
-                        switch(parts.shift()){
-                            case "data":
-                                data += parts.join(":") + "\n";
-                                break;
-                                
-                            case "event":
-                                eventName = parts[1];
-                                break;
-                                
-                            case "id":
-                                //todo
-                                break;
-                        }
+                        this._processDataLine(parts.shift(), parts.join(":"));                                               
                     
                     } else if (lines[i].replace(/\s/g, "") == ""){
-                        //an empty line means to flush the event buffer of data
-                        //but only if there's data to send
-                    
-                        if (data != ""){
-                        
-                            //per spec, strip off last newline
-                            if (data.charAt(data.length-1) == "\n"){
-                                data = data.substring(0,data.length-1);
-                            }
-                        
-                            //an empty line means a message is complete
-                            this.fire({type: "message", data: data});
-                            
-                            //clear the existing data
-                            data = "";
-                            eventName = "";
-                        }
+                        /*
+                         * An empty lines means to flush the event buffers
+                         * and fire message event.
+                         */                    
+                        this._fireMessageEvent();
                     
                     }
                 
@@ -281,23 +460,71 @@ YUI.add('gallery-eventsource', function(Y) {
             },
             
             /**
+             * Fires the message event with appropriate data, but only if
+             * there is actual data to share. This uses the stored
+             * event name and data value to fire the appropriate event.
+             * @return {void}
+             * @method _fireMessageEvent
+             * @private
+             */
+            _fireMessageEvent: function(){
+                var eventName = "message",
+                    eventData,
+                    lastEventId;
+            
+                if (this._data != ""){
+                
+                    //per spec, strip off last newline
+                    if (this._data.charAt(this._data.length-1) == "\n"){
+                        this._data = this._data.substring(0,this._data.length-1);
+                    }
+                
+                    if (this._eventName.replace(/^\s+|\s+$/g, "") != ""){
+                        eventName = this._eventName;
+                    }
+                
+                    //create copies of data
+                    eventData = this._data;
+                    lastEventId = this._lastEventId;
+                
+                    //an empty line means a message is complete
+                    //TODO: Add origin property
+                    Y.later(0, this, function(){
+                        this.fire({type: eventName, data: eventData, lastEventId: lastEventId});
+                    });
+                                            
+                    //clear the existing data
+                    this._data = "";
+                    this._eventName = "";                    
+                }            
+            },
+            
+            /**
              * Permanently close the connection with the server.
              * @method close
              * @return {void}
              */
             close: function(){
-                this.readyState = 2;
-                this._transport.abort();
+                if (this.readyState != 2){
+                    this.readyState = 2;
+                    
+                    /*
+                     * It's possible that close() was called before the timeout
+                     * set in _init() has executed. In that case, this._transport
+                     * is still null.
+                     */
+                    if (this._transport){
+                        this._transport.abort();
+                    }
+                }
             }
 
-        };
-    
-    
+        };    
     
     }
     
     //inherit from Event.Target to get events, and assign instance methods
-    Y.extend(YUIEventSource, Y.Event.Target, YUIEventSourceProto);
+    Y.extend(YUIEventSource, Y.Event.Target, Y.merge(basePrototype, prototype));
 
     //publish to Y object
     Y.EventSource = YUIEventSource;
