@@ -3,7 +3,8 @@
 
     var useNative = typeof EventSource != "undefined",
         prototype,
-        basePrototype;
+        basePrototype,
+        RETRY_MS = 500;
 
     function YUIEventSource(url){
     
@@ -65,10 +66,13 @@
          * @private
          */
         _fireOpenEvent: function(){
-            Y.later(0, this, function(){
-                this.readyState = 1;
-                this.fire({type:"open"});
-            });        
+            //only fire is there wasn't already an error
+            if (this.readyState < 2){
+                Y.later(0, this, function(){
+                    this.readyState = 1;
+                    this.fire({type:"open"});
+                });        
+            }
         },
         
         /**
@@ -235,52 +239,51 @@
                         throw new Error("Server-sent events unavailable.");
                     }
                     
+                    src.open("get", this.url, true);
+                    
                     /*
                      * If there was a last event ID, add the special
                      * Last-Event-ID header to the request.
                      */
                     if (this._lastEventId){
-                        src.setRequestHeader("Last-Event-ID: " + this._lastEventId);
+                        src.setRequestHeader("Last-Event-ID", this._lastEventId);
                         //TODO: Need to reset _lastEventId? Pending WHAT-WG clarification
                     }
                     
-                    src.open("get", this.url, true);
-                        
                     /*
-                     * IE < 8 will not have multiple readyState 3 calls, so
-                     * those will go to readyState 4 and effectively become
-                     * long-polling requests. All others will have a hanging
-                     * GET request that receives continual information over
-                     * the same connection.
+                     * Internet Explorer can't deal with streaming data. Send
+                     * an extra HTTP header letting the serve know that polling
+                     * is really the only option for this browser. Servers can
+                     * use this to make sure streaming data isn't sent to IE.
                      */
+                    if (Y.UA.ie){
+                        src.setRequestHeader("X-YUIEventSource-PollOnly", "1");
+                    }
+                    
+                    
                     src.onreadystatechange = function(){
                     
-                        if (src.readyState == 3){
+                        /*
+                         * IE will not have multiple readyState 3 calls, so
+                         * those will go to readyState 4 and effectively become
+                         * long-polling requests. All others will have a hanging
+                         * GET request that receives continual information over
+                         * the same connection.
+                         */
+                        if (src.readyState == 3 && Y.UA.ie === 0){
                         
                             //verify that the HTTP content type is correct, if not, error out
                             if (src.getResponseHeader("Content-type") != "text/event-stream"){
                                 that.close();
                                 that._fireErrorEvent();
-                                return;
-                            }
-                        
-                            //means content type is correct, keep going
-                            that._signalOpen();
-                            
-                            /*
-                             * Streaming XHR objects will start getting data at
-                             * readyState 3. IE6 and IE7 do not support this
-                             * behavior and throw an error if you try to access
-                             * responseText during any readyState other than 4.
-                             * It's ugly, but browser sniffing to avoid unnecessary
-                             * try/catch.
-                             */
-                            if (Y.UA.ie === 0 && Y.UA.ie < 8){                                
+                            } else {
+                                that._signalOpen();                                                        
                                 that._processIncomingData(src.responseText);
-                            }
+                            }                        
+                            
                         } else if (src.readyState == 4 && that.readyState < 2){
                         
-                            //IE6 and IE7 won't have fired the open event yet, so check
+                            //IE6-8 won't have fired the open event yet, so check
                             that._signalOpen();
                             
                             //there might be one more event queued up to be fired
@@ -324,7 +327,7 @@
                             this._transport.onreadystatechange = function(){};
                             
                             //now start it
-                            this._init();
+                            Y.later(RETRY_MS, this, this._init);
                         }
                     } else {
                         throw new Error(); //fastest way to fire error event
