@@ -41,8 +41,10 @@ AnimLoop = {
      * @return {void}
      */
     start: function(){
-        run = true;
-        runLoop();
+        if (!run){
+            run = true;
+            runLoop();
+        }
     },
     
     /**
