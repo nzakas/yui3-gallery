@@ -69,6 +69,7 @@ runLoop = (function(){
     if (window.mozRequestAnimationFrame){
         innerFunction = function() {
             if (run){
+            
                 AnimLoop.fire(event);
                 window.mozRequestAnimationFrame(innerFunction);
             }  

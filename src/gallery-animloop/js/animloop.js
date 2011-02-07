@@ -40,6 +40,7 @@ AnimLoop = {
      */
     start: function(){
         if (!run){
+            Y.log("Request to start animation loop.", "info", "AnimLoop");
             run = true;
             runLoop();
         }
@@ -53,6 +54,7 @@ AnimLoop = {
      * @return {void}
      */
     stop: function(){
+        Y.log("Request to stop animation loop.", "info", "AnimLoop");                
         run = false;
     }
 };
@@ -67,23 +69,30 @@ runLoop = (function(){
     if (window.mozRequestAnimationFrame){
         innerFunction = function() {
             if (run){
+                Y.log("Running using mozRequestAnimationFrame.", "info", "AnimLoop");
+            
                 AnimLoop.fire(event);
                 window.mozRequestAnimationFrame(innerFunction);
             }  
+            Y.log("Stopping animation loop.", "info", "AnimLoop");
         };
     } else if (window.webkitRequestAnimationFrame){
         innerFunction = function() {
             if (run){
+                Y.log("Running using webkitRequestAnimationFrame.", "info", "AnimLoop");
                 AnimLoop.fire(event);
                 window.webkitRequestAnimationFrame(innerFunction);
             }  
         };
+        Y.log("Stopping animation loop.", "info", "AnimLoop");
     } else {
         innerFunction = function(){
             intervalId = setInterval(function(){
                 if (run){
+                    Y.log("Running using setInterval.", "info", "AnimLoop");
                     AnimLoop.fire(event);
                 } else {
+                    Y.log("Stopping animation loop.", "info", "AnimLoop");
                     clearInterval(intervalId);
                 }
             }, 1000 / 60);
