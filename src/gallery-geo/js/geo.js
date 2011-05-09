@@ -58,7 +58,7 @@ function getCurrentPositionByAPI(callback, scope, opts){
  * @param callback {Function} The callback function to call when the
  *      request is complete. The object passed into the request has
  *      four properties: success (true/false), coords (an object), 
- *      timestamp, and source ("native" or "geoplugin").
+ *      timestamp, and source ("native" or "pidgets.geoip").
  * @param scope {Object} (Optional) The this value for the callback function.
  * @param opts {Object} (Optional) The PositionOptions object passed to
  *      the getCurrentPosition function and has three optional properties:
@@ -67,7 +67,7 @@ function getCurrentPositionByAPI(callback, scope, opts){
  */
 function getCurrentPositionByGeoIP(callback, scope, opts){
 
-    opts || (opts = {});
+    opts = opts || {};
     var yqlParams = Y.Lang.isNumber(opts.maximumAge) ?
         { _maxage: opts.maximumAge } : {};
     
