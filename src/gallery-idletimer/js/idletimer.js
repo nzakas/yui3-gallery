@@ -129,7 +129,6 @@ Y.IdleTimer = {
         //assign appropriate event handlers
         Y.on("mousemove", handleUserEvent, doc);
         Y.on("keydown", handleUserEvent, doc);
-        Y.on("mousedown", handleUserEvent, doc);
 
         //need to add the old-fashioned way
         if (doc.addEventListener) {
@@ -160,7 +159,6 @@ Y.IdleTimer = {
         //detach the event handlers
         Y.detach("mousemove", handleUserEvent, doc);
         Y.detach("keydown", handleUserEvent, doc);
-        Y.detach("mousedown", handleUserEvent, doc);
 
         if (doc.removeEventListener) {
             doc.removeEventListener("msvisibilitychange", handleUserEvent, false);
